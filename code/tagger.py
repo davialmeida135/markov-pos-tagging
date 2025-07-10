@@ -1,12 +1,7 @@
 import math
 from collections import defaultdict, Counter
-import nltk
-
-nltk.download('brown')
-nltk.download('universal_tagset')
-from nltk.corpus import brown
-
-class HMM_POS_Tagger:
+from processor import PennTreebankProcessor
+class HmmPosTagger:
     def __init__(self):
         self.transition_counts = defaultdict(Counter)
         self.emission_counts = defaultdict(Counter)
@@ -81,16 +76,19 @@ class HMM_POS_Tagger:
     
 if __name__ == "__main__":
     # Load the Brown corpus
-    tagged_sentences = brown.tagged_sents(categories='news', tagset='universal')
-    print(tagged_sentences[0])  # Print first 5 tagged sentences for verification
+    data_dir = 'data/raw'  # Adjust this path as necessary
+    processor = PennTreebankProcessor(data_dir)
+    processor.process() 
+
+
     # Train the HMM POS tagger
-    tagger = HMM_POS_Tagger()
-    #tagger.train(tagged_sentences)
+    tagger = HmmPosTagger()
+    tagger.train(processor.train)
 
     # Test the tagger on a sample sentence
-    #test_sentence = "The quick brown fox jumps over the lazy dog"
-    #predicted_tags = tagger.viterbi(test_sentence)
+    test_sentence = "The quick brown fox jumps over the lazy dog"
+    predicted_tags = tagger.viterbi(test_sentence)
 
     # Print the results
-    #for word, tag in zip(test_sentence.split(), predicted_tags):
-    #    print(f"{word}: {tag}")
+    for word, tag in zip(test_sentence.split(), predicted_tags):
+        print(f"{word}: {tag}")
