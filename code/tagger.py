@@ -1,5 +1,7 @@
 import math
 from collections import defaultdict, Counter
+import pickle
+import os
 from processor import PennTreebankProcessor
 class HmmPosTagger:
     def __init__(self):
@@ -74,6 +76,47 @@ class HmmPosTagger:
 
         return list(reversed(best_tags))
     
+
+    def save_model(self, filepath):
+        """Save the trained HMM model to a file."""
+        model_data = {
+            'transition_counts': dict(self.transition_counts),
+            'emission_counts': dict(self.emission_counts),
+            'tag_bigram_counts': dict(self.tag_bigram_counts),
+            'tag_unigram_counts': dict(self.tag_unigram_counts),
+            'tag_set': self.tag_set
+        }
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f)
+        print(f"Model saved to {filepath}")
+    
+    def load_model(self, filepath):
+        """Load a trained HMM model from a file."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        self.transition_counts = defaultdict(Counter, model_data['transition_counts'])
+        self.emission_counts = defaultdict(Counter, model_data['emission_counts'])
+        self.tag_bigram_counts = defaultdict(int, model_data['tag_bigram_counts'])
+        self.tag_unigram_counts = Counter(model_data['tag_unigram_counts'])
+        self.tag_set = model_data['tag_set']
+        print(f"Model loaded from {filepath}")
+    
+    def get_model_stats(self):
+        """Get statistics about the trained model."""
+        stats = {
+            'num_tags': len(self.tag_set),
+            'num_transitions': sum(len(counter) for counter in self.transition_counts.values()),
+            'num_emissions': sum(len(counter) for counter in self.emission_counts.values()),
+            'total_tag_occurrences': sum(self.tag_unigram_counts.values()),
+            'vocabulary_size': len(set(word for counter in self.emission_counts.values() for word in counter.keys()))
+        }
+        return stats
+    
 if __name__ == "__main__":
     # Load the Brown corpus
     data_dir = 'data/raw'  # Adjust this path as necessary
@@ -84,9 +127,11 @@ if __name__ == "__main__":
     # Train the HMM POS tagger
     tagger = HmmPosTagger()
     tagger.train(processor.train)
+    tagger.save_model('models/hmm_pos_tagger.pkl')
+    tagger.get_model_stats()
 
     # Test the tagger on a sample sentence
-    test_sentence = "The quick brown fox jumps over the lazy dog"
+    test_sentence = "Brasil is a country in South America"
     predicted_tags = tagger.viterbi(test_sentence)
 
     # Print the results
