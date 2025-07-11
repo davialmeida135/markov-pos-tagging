@@ -1,5 +1,4 @@
 import os
-import re
 class PennTreebankProcessor:
     def __init__(self, data_dir):
         self.data_dir = data_dir
@@ -35,10 +34,6 @@ class PennTreebankProcessor:
                     word, tag = token.rsplit('_', 1)
                     if word and tag:
                         current_sentence.append((word, tag))
-                sentences.append(current_sentence)
-            
-            # Se sobrar uma última frase
-            if current_sentence:
                 sentences.append(current_sentence)
                 
             return sentences
