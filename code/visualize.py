@@ -1,119 +1,187 @@
-from collections import defaultdict
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix
-import pandas as pd
-import networkx as nx
+from sklearn.metrics import confusion_matrix, classification_report
+import numpy as np
+from collections import Counter, defaultdict
+import csv
+import re
 
-def create_confusion_matrix_visualization(self, test_sentences):
-    """Create a confusion matrix for POS tag predictions."""
-    true_tags = []
-    predicted_tags = []
+def clean_predictions_data(df):
+    """Remove special characters and punctuation from predictions for more accurate metrics."""
+    # Define punctuation and special character tags to exclude
+    special_tags = {
+        ',', '.', ':', ';', '!', '?', '"', "'", '`', '``', "''", 
+        '-LRB-', '-RRB-', '-LCB-', '-RCB-', '--', '...', '$', '%', '#',
+    }
     
-    for sent in test_sentences:
-        words = [word.lower() for (word, _) in sent]
-        pred_tags = self.viterbi(words)
-        true_tags.extend([tag for (_, tag) in sent])
-        predicted_tags.extend(pred_tags)
+    # Also exclude words that are purely punctuation or special characters
+    punctuation_pattern = re.compile(r'^[^\w\s]+$')
+    
+    # Create a copy to avoid modifying the original
+    cleaned_df = df.copy()
+    
+    # Remove rows where either predicted or true tag is special punctuation
+    mask = ~(cleaned_df['predicted_tag'].isin(special_tags) | 
+             cleaned_df['true_tag'].isin(special_tags))
+    
+    cleaned_df = cleaned_df[mask]
+    
+    # Remove rows where the word is purely punctuation
+    word_mask = ~cleaned_df['word'].str.match(punctuation_pattern, na=False)
+    cleaned_df = cleaned_df[word_mask]
+    
+    # Remove empty or very short words that might be artifacts
+    cleaned_df = cleaned_df[cleaned_df['word'].str.len() > 1]
+    
+    print(f"Original data: {len(df)} predictions")
+    print(f"Cleaned data: {len(cleaned_df)} predictions")
+    print(f"Removed: {len(df) - len(cleaned_df)} punctuation/special character predictions")
+    
+    return cleaned_df
+
+def load_predictions(csv_path='predictions.csv', clean_data=True):
+    """Load predictions from CSV file with proper handling of commas in data."""
+    try:
+        # Try reading with quoting to handle commas in fields
+        df = pd.read_csv(csv_path, quoting=csv.QUOTE_ALL)
+    except Exception as e:
+        print(f"Erro ao ler {csv_path} com quoting. Tentando método alternativo...")
+        try:
+            # Alternative: read with different separator or manual parsing
+            df = pd.read_csv(csv_path, sep=',', quotechar='"', skipinitialspace=True)
+        except Exception as e2:
+            print(f"Erro ao carregar {csv_path}: {e2}")
+            print("Tentando reparar o arquivo...")
+            df = repair_and_load_csv(csv_path)
+    
+    if df is not None and clean_data:
+        df = clean_predictions_data(df)
+    
+    return df
+
+def repair_and_load_csv(csv_path='predictions.csv'):
+    """Repair and load a malformed CSV file."""
+    try:
+        # Read the raw file and fix it
+        repaired_data = []
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Skip header
+        header = lines[0].strip().split(',')
+        if len(header) != 3:
+            header = ['word', 'predicted_tag', 'true_tag']
+        
+        # Process each line
+        for i, line in enumerate(lines[1:], 1):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Try to split properly - expecting exactly 3 fields
+            parts = line.split(',')
+            
+            if len(parts) == 3:
+                repaired_data.append(parts)
+            elif len(parts) > 3:
+                # Merge extra parts into the first field (word)
+                word = ','.join(parts[:-2])  # Everything except last 2 fields
+                predicted_tag = parts[-2]
+                true_tag = parts[-1]
+                repaired_data.append([word, predicted_tag, true_tag])
+            else:
+                print(f"Linha {i} ignorada - campos insuficientes: {line}")
+                continue
+        
+        # Create DataFrame
+        df = pd.DataFrame(repaired_data, columns=header)
+        
+        # Clean the data
+        df['word'] = df['word'].str.strip(' "\'')
+        df['predicted_tag'] = df['predicted_tag'].str.strip(' "\'')
+        df['true_tag'] = df['true_tag'].str.strip(' "\'')
+        
+        print(f"Arquivo reparado com sucesso. {len(df)} linhas carregadas.")
+        return df
+        
+    except Exception as e:
+        print(f"Erro ao reparar arquivo: {e}")
+        return None
+
+def create_confusion_matrix_visualization(csv_path='predictions.csv', top_n=15, clean_data=True):
+    """Create a confusion matrix for POS tag predictions from CSV."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return
     
     # Get most common tags for better visualization
-    common_tags = pd.Series(true_tags).value_counts().head(15).index.tolist()
+    common_tags = df['true_tag'].value_counts().head(top_n).index.tolist()
     
     # Filter data to common tags only
-    filtered_true = [tag if tag in common_tags else 'OTHER' for tag in true_tags]
-    filtered_pred = [tag if tag in common_tags else 'OTHER' for tag in predicted_tags]
+    mask = (df['true_tag'].isin(common_tags)) & (df['predicted_tag'].isin(common_tags))
+    filtered_df = df[mask]
     
     # Create confusion matrix
-    cm = confusion_matrix(filtered_true, filtered_pred, labels=common_tags + ['OTHER'])
+    cm = confusion_matrix(filtered_df['true_tag'], filtered_df['predicted_tag'], 
+                         labels=common_tags)
     
     plt.figure(figsize=(12, 10))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=common_tags + ['OTHER'], 
-                yticklabels=common_tags + ['OTHER'])
-    plt.title('Matriz de Confusão - POS Tagging')
+                xticklabels=common_tags, 
+                yticklabels=common_tags)
+    
+    title = 'Matriz de Confusão - POS Tagging'
+    if clean_data:
+        title += ' (Sem Pontuação)'
+    plt.title(title)
     plt.xlabel('Tags Preditas')
     plt.ylabel('Tags Verdadeiras')
     plt.tight_layout()
+    
+    filename = 'confusion_matrix_clean.png' if clean_data else 'confusion_matrix.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
 
-
-def visualize_transition_graph(self, top_n=20):
-    """Visualize the most common POS tag transitions."""
-    # Get top transitions
-    all_transitions = []
-    for (prev2, prev1), counter in self.transition_counts.items():
-        for curr, count in counter.items():
-            if prev2 != '<s>' and prev1 != '<s>' and curr != '<s>':
-                all_transitions.append(((prev1, curr), count))
+def analyze_performance_by_tag(csv_path='predictions.csv', top_n=20, clean_data=True):
+    """Analyze model performance for each POS tag from CSV."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return None
     
-    # Sort and get top transitions
-    top_transitions = sorted(all_transitions, key=lambda x: x[1], reverse=True)[:top_n]
+    # Calculate statistics for each tag
+    tag_stats = df.groupby('true_tag').agg({
+        'predicted_tag': lambda x: (x == x.name).sum(),  # correct predictions
+        'word': 'count'  # total occurrences
+    }).rename(columns={'predicted_tag': 'correct', 'word': 'total'})
     
-    # Create graph
-    G = nx.DiGraph()
-    for (prev_tag, curr_tag), count in top_transitions:
-        G.add_edge(prev_tag, curr_tag, weight=count)
-    
-    plt.figure(figsize=(15, 10))
-    pos = nx.spring_layout(G, k=3, iterations=50)
-    
-    # Draw nodes
-    nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
-                          node_size=1000, alpha=0.7)
-    
-    # Draw edges with varying thickness
-    edges = G.edges()
-    weights = [G[u][v]['weight'] for u, v in edges]
-    max_weight = max(weights)
-    
-    nx.draw_networkx_edges(G, pos, width=[w/max_weight * 5 for w in weights],
-                          alpha=0.6, edge_color='gray')
-    
-    # Draw labels
-    nx.draw_networkx_labels(G, pos, font_size=10)
-    
-    plt.title('Transições Mais Comuns entre Tags POS')
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()
-
-def analyze_performance_by_tag(self, test_sentences):
-    """Analyze model performance for each POS tag."""
-    tag_stats = defaultdict(lambda: {'correct': 0, 'total': 0, 'precision': 0, 'recall': 0})
-    
-    for sent in test_sentences:
-        words = [word.lower() for (word, _) in sent]
-        pred_tags = self.viterbi(words)
-        true_tags = [tag for (_, tag) in sent]
-        
-        for pred, true in zip(pred_tags, true_tags):
-            tag_stats[true]['total'] += 1
-            if pred == true:
-                tag_stats[true]['correct'] += 1
-    
-    # Calculate accuracy for each tag
-    for tag in tag_stats:
-        if tag_stats[tag]['total'] > 0:
-            tag_stats[tag]['accuracy'] = tag_stats[tag]['correct'] / tag_stats[tag]['total']
+    tag_stats['accuracy'] = tag_stats['correct'] / tag_stats['total']
+    tag_stats = tag_stats.sort_values('total', ascending=False).head(top_n)
     
     # Create visualization
-    tags = list(tag_stats.keys())
-    accuracies = [tag_stats[tag]['accuracy'] for tag in tags]
-    counts = [tag_stats[tag]['total'] for tag in tags]
-    
-    # Sort by frequency
-    sorted_data = sorted(zip(tags, accuracies, counts), key=lambda x: x[2], reverse=True)
-    tags, accuracies, counts = zip(*sorted_data[:20])  # Top 20 most frequent tags
-    
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10))
     
     # Accuracy plot
+    tags = tag_stats.index
+    accuracies = tag_stats['accuracy']
+    counts = tag_stats['total']
+    
     bars1 = ax1.bar(range(len(tags)), accuracies, color='skyblue')
     ax1.set_xlabel('Tags POS')
     ax1.set_ylabel('Acurácia')
-    ax1.set_title('Acurácia por Tag POS')
+    title = 'Acurácia por Tag POS'
+    if clean_data:
+        title += ' (Sem Pontuação)'
+    ax1.set_title(title)
     ax1.set_xticks(range(len(tags)))
     ax1.set_xticklabels(tags, rotation=45)
+    ax1.set_ylim(0, 1)
+    
+    # Add accuracy values on bars
+    for bar, acc in zip(bars1, accuracies):
+        height = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{acc:.3f}', ha='center', va='bottom', fontsize=8)
     
     # Frequency plot
     bars2 = ax2.bar(range(len(tags)), counts, color='lightcoral')
@@ -123,106 +191,293 @@ def analyze_performance_by_tag(self, test_sentences):
     ax2.set_xticks(range(len(tags)))
     ax2.set_xticklabels(tags, rotation=45)
     
+    # Add count values on bars
+    for bar, count in zip(bars2, counts):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + max(counts)*0.01,
+                f'{count}', ha='center', va='bottom', fontsize=8)
+    
     plt.tight_layout()
+    filename = 'performance_by_tag_clean.png' if clean_data else 'performance_by_tag.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
     
     return tag_stats
 
-def visualize_viterbi_path(self, sentence, max_tags=8):
-    """Visualize the Viterbi algorithm path for a sentence."""
-    if isinstance(sentence, str):
-        words = sentence.split()
-    else:
-        words = sentence
+def create_error_analysis(csv_path='predictions.csv', clean_data=True):
+    """Analyze the most common errors made by the model."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return
     
-    words = [w.lower() for w in words]
-    predicted_tags = self.viterbi(words)
+    # Find incorrect predictions
+    errors = df[df['true_tag'] != df['predicted_tag']]
     
-    # Get most likely tags for each word for visualization
-    tag_list = [tag for tag in self.tag_set if tag != '<s>'][:max_tags]
+    # Most common error types
+    error_types = errors.groupby(['true_tag', 'predicted_tag']).size().reset_index(name='count')
+    error_types = error_types.sort_values('count', ascending=False).head(20)
     
-    fig, ax = plt.subplots(figsize=(15, 8))
+    # Create visualization
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
     
-    # Create a grid showing words and possible tags
-    for i, word in enumerate(words):
-        for j, tag in enumerate(tag_list):
-            # Color based on whether this is the predicted tag
-            color = 'red' if tag == predicted_tags[i] else 'lightblue'
-            rect = plt.Rectangle((i, j), 1, 1, facecolor=color, alpha=0.7, edgecolor='black')
-            ax.add_patch(rect)
-            
-            # Add probability text (simplified)
-            prob = self.emission_prob(tag, word)
-            ax.text(i+0.5, j+0.5, f'{prob:.3f}', ha='center', va='center', fontsize=8)
+    # Most common errors
+    error_labels = [f"{row['true_tag']} → {row['predicted_tag']}" 
+                   for _, row in error_types.iterrows()]
     
-    # Draw the path
-    for i in range(len(words)):
-        tag_idx = tag_list.index(predicted_tags[i]) if predicted_tags[i] in tag_list else 0
-        if i > 0:
-            prev_tag_idx = tag_list.index(predicted_tags[i-1]) if predicted_tags[i-1] in tag_list else 0
-            ax.arrow(i-0.5, prev_tag_idx+0.5, 0.8, tag_idx-prev_tag_idx, 
-                    head_width=0.1, head_length=0.1, fc='red', ec='red', linewidth=2)
+    ax1.barh(range(len(error_labels)), error_types['count'], color='salmon')
+    ax1.set_yticks(range(len(error_labels)))
+    ax1.set_yticklabels(error_labels)
+    ax1.set_xlabel('Número de Erros')
+    title = '20 Tipos de Erro Mais Comuns'
+    if clean_data:
+        title += ' (Sem Pontuação)'
+    ax1.set_title(title)
+    ax1.invert_yaxis()
     
-    ax.set_xlim(0, len(words))
-    ax.set_ylim(0, len(tag_list))
-    ax.set_xticks(range(len(words)))
-    ax.set_xticklabels([f'{word}\n{tag}' for word, tag in zip(words, predicted_tags)], rotation=45)
-    ax.set_yticks(range(len(tag_list)))
-    ax.set_yticklabels(tag_list)
-    ax.set_xlabel('Palavras')
-    ax.set_ylabel('Tags POS')
-    ax.set_title('Caminho do Algoritmo Viterbi')
+    # Error rate by tag
+    total_by_tag = df['true_tag'].value_counts()
+    errors_by_tag = errors['true_tag'].value_counts()
+    error_rate = (errors_by_tag / total_by_tag).fillna(0).sort_values(ascending=False).head(15)
+    
+    ax2.bar(range(len(error_rate)), error_rate.values, color='lightcoral')
+    ax2.set_xlabel('Tags POS')
+    ax2.set_ylabel('Taxa de Erro')
+    ax2.set_title('Taxa de Erro por Tag POS')
+    ax2.set_xticks(range(len(error_rate)))
+    ax2.set_xticklabels(error_rate.index, rotation=45)
     
     plt.tight_layout()
+    filename = 'error_analysis_clean.png' if clean_data else 'error_analysis.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
 
-def create_model_statistics_dashboard(self):
-    """Create a dashboard with model statistics."""
-    stats = self.get_model_stats()
+def create_word_difficulty_analysis(csv_path='predictions.csv', clean_data=True):
+    """Analyze which words are most difficult to tag correctly."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return
     
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+    # Calculate accuracy for each word
+    word_stats = df.groupby('word').agg({
+        'predicted_tag': lambda x: (x == df.loc[x.index, 'true_tag']).sum(),
+        'true_tag': 'count'
+    }).rename(columns={'predicted_tag': 'correct', 'true_tag': 'total'})
     
-    # Tag frequency distribution
-    tag_counts = list(self.tag_unigram_counts.values())
-    ax1.hist(tag_counts, bins=30, color='skyblue', alpha=0.7)
-    ax1.set_xlabel('Frequência')
-    ax1.set_ylabel('Número de Tags')
-    ax1.set_title('Distribuição de Frequência das Tags')
+    word_stats['accuracy'] = word_stats['correct'] / word_stats['total']
     
-    # Top 15 most common tags
-    top_tags = self.tag_unigram_counts.most_common(15)
-    tags, counts = zip(*top_tags)
-    ax2.bar(range(len(tags)), counts, color='lightcoral')
-    ax2.set_xlabel('Tags')
-    ax2.set_ylabel('Frequência')
-    ax2.set_title('15 Tags Mais Comuns')
-    ax2.set_xticks(range(len(tags)))
-    ax2.set_xticklabels(tags, rotation=45)
+    # Filter words that appear at least 5 times
+    frequent_words = word_stats[word_stats['total'] >= 5]
     
-    # Model complexity
-    complexity_data = [
-        stats['num_tags'],
-        stats['num_transitions'],
-        stats['num_emissions'],
-        stats['vocabulary_size']
-    ]
-    complexity_labels = ['Tags', 'Transições', 'Emissões', 'Vocabulário']
+    # Most difficult words (lowest accuracy)
+    difficult_words = frequent_words.sort_values('accuracy').head(20)
     
-    ax3.bar(complexity_labels, complexity_data, color=['gold', 'lightgreen', 'lightblue', 'pink'])
-    ax3.set_ylabel('Quantidade')
-    ax3.set_title('Complexidade do Modelo')
-    ax3.set_yscale('log')
+    # Easiest words (highest accuracy, but not 100%)
+    easy_words = frequent_words[frequent_words['accuracy'] < 1.0].sort_values('accuracy', ascending=False).head(20)
     
-    # Summary text
-    ax4.text(0.1, 0.8, f"Número de Tags: {stats['num_tags']}", fontsize=12, transform=ax4.transAxes)
-    ax4.text(0.1, 0.7, f"Transições: {stats['num_transitions']}", fontsize=12, transform=ax4.transAxes)
-    ax4.text(0.1, 0.6, f"Emissões: {stats['num_emissions']}", fontsize=12, transform=ax4.transAxes)
-    ax4.text(0.1, 0.5, f"Vocabulário: {stats['vocabulary_size']}", fontsize=12, transform=ax4.transAxes)
-    ax4.text(0.1, 0.4, f"Total de Tags: {stats['total_tag_occurrences']}", fontsize=12, transform=ax4.transAxes)
-    ax4.set_xlim(0, 1)
-    ax4.set_ylim(0, 1)
-    ax4.set_title('Resumo do Modelo')
-    ax4.axis('off')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
+    
+    # Most difficult words
+    ax1.barh(range(len(difficult_words)), difficult_words['accuracy'], color='red', alpha=0.7)
+    ax1.set_yticks(range(len(difficult_words)))
+    ax1.set_yticklabels(difficult_words.index)
+    ax1.set_xlabel('Acurácia')
+    title = '20 Palavras Mais Difíceis de Classificar'
+    if clean_data:
+        title += ' (Sem Pontuação)'
+    ax1.set_title(title)
+    ax1.invert_yaxis()
+    
+    # Easiest words
+    ax2.barh(range(len(easy_words)), easy_words['accuracy'], color='green', alpha=0.7)
+    ax2.set_yticks(range(len(easy_words)))
+    ax2.set_yticklabels(easy_words.index)
+    ax2.set_xlabel('Acurácia')
+    ax2.set_title('20 Palavras Mais Fáceis de Classificar')
+    ax2.invert_yaxis()
     
     plt.tight_layout()
+    filename = 'word_difficulty_clean.png' if clean_data else 'word_difficulty.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.show()
+
+def create_overall_metrics_dashboard(csv_path='predictions.csv', clean_data=True):
+    """Create a dashboard with overall model metrics."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return
+    
+    # Calculate overall metrics
+    total_predictions = len(df)
+    correct_predictions = (df['true_tag'] == df['predicted_tag']).sum()
+    overall_accuracy = correct_predictions / total_predictions
+    
+    # Tag distribution
+    tag_distribution = df['true_tag'].value_counts().head(10)
+    
+    # Accuracy by sentence length (approximated by grouping consecutive words)
+    df_copy = df.copy()
+    df_copy['sentence_id'] = (df_copy['word'] == df_copy['word'].shift()).cumsum()
+    sentence_lengths = df_copy.groupby('sentence_id').size()
+    sentence_accuracy = df_copy.groupby('sentence_id').apply(
+        lambda x: (x['true_tag'] == x['predicted_tag']).mean()
+    )
+    
+    # Create bins for sentence length
+    length_bins = pd.cut(sentence_lengths, bins=[0, 10, 20, 30, 50, 100], 
+                        labels=['1-10', '11-20', '21-30', '31-50', '51+'])
+    length_accuracy = sentence_accuracy.groupby(length_bins).mean()
+    
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
+    
+    # Overall metrics
+    data_type = "(Sem Pontuação)" if clean_data else "(Com Pontuação)"
+    metrics_text = f"""
+    Métricas Gerais do Modelo {data_type}:
+    
+    Acurácia Total: {overall_accuracy:.4f} ({overall_accuracy*100:.2f}%)
+    Total de Predições: {total_predictions:,}
+    Predições Corretas: {correct_predictions:,}
+    Predições Incorretas: {total_predictions - correct_predictions:,}
+    
+    Número de Tags Únicas: {df['true_tag'].nunique()}
+    Número de Palavras Únicas: {df['word'].nunique()}
+    """
+    
+    ax1.text(0.05, 0.95, metrics_text, transform=ax1.transAxes, fontsize=11,
+             verticalalignment='top', fontfamily='monospace')
+    ax1.set_xlim(0, 1)
+    ax1.set_ylim(0, 1)
+    ax1.axis('off')
+    ax1.set_title('Resumo Geral')
+    
+    # Tag distribution
+    ax2.bar(range(len(tag_distribution)), tag_distribution.values, color='skyblue')
+    ax2.set_xlabel('Tags POS')
+    ax2.set_ylabel('Frequência')
+    ax2.set_title('Top 10 Tags Mais Frequentes')
+    ax2.set_xticks(range(len(tag_distribution)))
+    ax2.set_xticklabels(tag_distribution.index, rotation=45)
+    
+    # Accuracy by sentence length
+    length_accuracy_clean = length_accuracy.dropna()
+    ax3.bar(range(len(length_accuracy_clean)), length_accuracy_clean.values, color='lightgreen')
+    ax3.set_xlabel('Tamanho da Sentença (palavras)')
+    ax3.set_ylabel('Acurácia Média')
+    ax3.set_title('Acurácia por Tamanho da Sentença')
+    ax3.set_xticks(range(len(length_accuracy_clean)))
+    ax3.set_xticklabels(length_accuracy_clean.index)
+    ax3.set_ylim(0, 1)
+    
+    # Prediction confidence (simplified as correct/incorrect ratio)
+    confidence_data = [correct_predictions, total_predictions - correct_predictions]
+    labels = ['Corretas', 'Incorretas']
+    colors = ['lightgreen', 'lightcoral']
+    
+    ax4.pie(confidence_data, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+    ax4.set_title('Distribuição de Predições')
+    
+    plt.tight_layout()
+    filename = 'overall_metrics_clean.png' if clean_data else 'overall_metrics.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.show()
+
+def generate_classification_report(csv_path='predictions.csv', clean_data=True):
+    """Generate and display a detailed classification report."""
+    df = load_predictions(csv_path, clean_data=clean_data)
+    if df is None:
+        return
+    
+    # Generate classification report
+    report = classification_report(df['true_tag'], df['predicted_tag'], 
+                                 output_dict=True, zero_division=0)
+    
+    # Convert to DataFrame for better visualization
+    report_df = pd.DataFrame(report).transpose()
+    
+    data_type = "(Sem Pontuação)" if clean_data else "(Com Pontuação)"
+    # Display top and bottom performing tags
+    print(f"=== RELATÓRIO DE CLASSIFICAÇÃO {data_type} ===\n")
+    print(f"Acurácia Geral: {report['accuracy']:.4f}")
+    print(f"Macro Avg F1-Score: {report['macro avg']['f1-score']:.4f}")
+    print(f"Weighted Avg F1-Score: {report['weighted avg']['f1-score']:.4f}")
+    
+    # Filter out summary rows
+    tag_metrics = report_df[~report_df.index.isin(['accuracy', 'macro avg', 'weighted avg'])]
+    tag_metrics = tag_metrics.sort_values('f1-score', ascending=False)
+    
+    print("\n=== TOP 10 TAGS (por F1-Score) ===")
+    print(tag_metrics.head(10)[['precision', 'recall', 'f1-score', 'support']].to_string())
+    
+    print("\n=== BOTTOM 10 TAGS (por F1-Score) ===")
+    print(tag_metrics.tail(10)[['precision', 'recall', 'f1-score', 'support']].to_string())
+    
+    return report_df
+
+def compare_metrics_with_without_punctuation(csv_path='predictions.csv'):
+    """Compare metrics with and without punctuation for analysis."""
+    print("=== COMPARAÇÃO: COM vs SEM PONTUAÇÃO ===\n")
+    
+    # Load data both ways
+    df_with_punct = load_predictions(csv_path, clean_data=False)
+    df_clean = load_predictions(csv_path, clean_data=True)
+    
+    if df_with_punct is None or df_clean is None:
+        print("Erro ao carregar dados")
+        return
+    
+    # Calculate accuracies
+    acc_with_punct = (df_with_punct['true_tag'] == df_with_punct['predicted_tag']).mean()
+    acc_clean = (df_clean['true_tag'] == df_clean['predicted_tag']).mean()
+    
+    print(f"Dados originais (com pontuação):")
+    print(f"  - Total de predições: {len(df_with_punct):,}")
+    print(f"  - Acurácia: {acc_with_punct:.4f} ({acc_with_punct*100:.2f}%)")
+    print(f"  - Tags únicas: {df_with_punct['true_tag'].nunique()}")
+    
+    print(f"\nDados limpos (sem pontuação):")
+    print(f"  - Total de predições: {len(df_clean):,}")
+    print(f"  - Acurácia: {acc_clean:.4f} ({acc_clean*100:.2f}%)")
+    print(f"  - Tags únicas: {df_clean['true_tag'].nunique()}")
+    
+    print(f"\nDiferença na acurácia: {acc_clean - acc_with_punct:.4f}")
+    print(f"Predições removidas: {len(df_with_punct) - len(df_clean):,}")
+
+# Função principal para gerar todas as visualizações
+def generate_all_visualizations(csv_path='predictions.csv', clean_data=True):
+    """Generate all visualizations from the predictions CSV."""
+    data_type = "dados limpos (sem pontuação)" if clean_data else "dados originais (com pontuação)"
+    print(f"Gerando visualizações a partir do arquivo de predições usando {data_type}...")
+    
+    print("1. Matriz de Confusão...")
+    create_confusion_matrix_visualization(csv_path, clean_data=clean_data)
+    
+    print("2. Análise de Performance por Tag...")
+    tag_stats = analyze_performance_by_tag(csv_path, clean_data=clean_data)
+    
+    print("3. Análise de Erros...")
+    create_error_analysis(csv_path, clean_data=clean_data)
+    
+    print("4. Análise de Dificuldade das Palavras...")
+    create_word_difficulty_analysis(csv_path, clean_data=clean_data)
+    
+    print("5. Dashboard de Métricas Gerais...")
+    create_overall_metrics_dashboard(csv_path, clean_data=clean_data)
+    
+    print("6. Relatório de Classificação...")
+    report = generate_classification_report(csv_path, clean_data=clean_data)
+    
+    print("\nTodas as visualizações foram geradas e salvas!")
+    
+    return tag_stats, report
+
+if __name__ == "__main__":
+    # Compare metrics first
+    compare_metrics_with_without_punctuation()
+    
+    # print("\n" + "="*50)
+    # print("Gerando visualizações COM pontuação...")
+    # tag_stats_with, report_with = generate_all_visualizations(clean_data=False)
+    
+    print("\n" + "="*50)
+    print("Gerando visualizações SEM pontuação (mais precisas)...")
+    tag_stats_clean, report_clean = generate_all_visualizations(clean_data=True)
