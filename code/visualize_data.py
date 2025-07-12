@@ -443,7 +443,7 @@ def compare_metrics_with_without_punctuation(csv_path='predictions.csv'):
     print(f"Predições removidas: {len(df_with_punct) - len(df_clean):,}")
 
 # Função principal para gerar todas as visualizações
-def generate_all_visualizations(csv_path='predictions.csv', clean_data=True):
+def generate_all_visualizations(csv_path='predictions_first_order.csv', clean_data=True):
     """Generate all visualizations from the predictions CSV."""
     data_type = "dados limpos (sem pontuação)" if clean_data else "dados originais (com pontuação)"
     print(f"Gerando visualizações a partir do arquivo de predições usando {data_type}...")
