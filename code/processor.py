@@ -1,4 +1,10 @@
 import os
+"""
+Classe para parsear o dataset Penn Treebank.
+O dataset é composto por arquivos de texto onde cada linha contém uma palavra seguida de sua tag.
+Cada palavra e tag são separadas por um underscore (_).
+A função processa os arquivos e organiza as sentenças em listas de tuplas (palavra, tag).
+"""
 class PennTreebankProcessor:
     def __init__(self, data_dir):
         self.data_dir = data_dir
@@ -50,14 +56,8 @@ class PennTreebankProcessor:
     
 
 if __name__ == "__main__":
-    data_dir = 'data/raw'  # Adjust this path as necessary
+    data_dir = 'data/raw'
     processor = PennTreebankProcessor(data_dir)
     processor.process()
-    
-    print(f"Train sentences: {len(processor.train)}")
-    print(f"Dev sentences: {len(processor.dev)}")
-    print(f"Test sentences: {len(processor.test)}")
-    #print("First train sentence:",len(processor.train[0]))
-    # Print the first sentence of the train set for verification
-    if processor.train:
-        print("First train sentence:", processor.train[0])
+
+    print(processor.train[0])
