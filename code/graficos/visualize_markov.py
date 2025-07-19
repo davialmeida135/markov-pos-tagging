@@ -272,7 +272,7 @@ def compare_transition_matrices(first_order_model, second_order_model, top_n=10)
 def visualize_sentence_tagging_process(model_data, sentence, model_type='second'):
     """Visualize the tagging process for a specific sentence."""
     if model_type == 'second':
-        from tagger import HmmPosTagger
+        from code.secondorder import HmmPosTagger
         tagger = HmmPosTagger()
     else:
         from firstorder import HmmPosTaggerFirstOrder
