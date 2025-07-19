@@ -16,8 +16,12 @@ class HmmPosTagger:
             tags = ['<s>', '<s>'] + [tag for (_, tag) in sent]
             words = [word.lower() for (word, _) in sent]
 
+            # Para cada palavra na frase, atualiza as contagens
             for i in range(len(words)):
+                # Pega tag atual + 2 anteriores
                 t_prev2, t_prev1, t_curr = tags[i], tags[i+1], tags[i+2]
+                
+                # Pega palavra atual
                 w_curr = words[i]
 
                 self.transition_counts[(t_prev2, t_prev1)][t_curr] += 1
@@ -182,7 +186,7 @@ class HmmPosTagger:
     
 
     def save_model(self, filepath):
-        """Save the trained HMM model to a file."""
+        """Salva modelo com pickle."""
         model_data = {
             'transition_counts': dict(self.transition_counts),
             'emission_counts': dict(self.emission_counts),
@@ -191,7 +195,6 @@ class HmmPosTagger:
             'tag_set': self.tag_set
         }
         
-        # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
         with open(filepath, 'wb') as f:
@@ -199,7 +202,7 @@ class HmmPosTagger:
         print(f"Model saved to {filepath}")
     
     def load_model(self, filepath):
-        """Load a trained HMM model from a file."""
+        """Carrega arquivo pkl com modelo."""
         with open(filepath, 'rb') as f:
             model_data = pickle.load(f)
         
@@ -211,7 +214,7 @@ class HmmPosTagger:
         print(f"Model loaded from {filepath}")
     
     def get_model_stats(self):
-        """Get statistics about the trained model."""
+        """Printa stats para debug."""
         stats = {
             'num_tags': len(self.tag_set),
             'num_transitions': sum(len(counter) for counter in self.transition_counts.values()),
@@ -222,13 +225,12 @@ class HmmPosTagger:
         return stats
     
 if __name__ == "__main__":
-    # Load the Brown corpus
-    data_dir = 'data/raw'  # Adjust this path as necessary
+    # Carregar penn treebank
+    data_dir = 'data/raw' 
     processor = PennTreebankProcessor(data_dir)
     processor.process() 
 
 
-    # Train the HMM POS tagger
     tagger = HmmPosTagger()
     #tagger.train(processor.train)
     #tagger.save_model('models/hmm_pos_tagger.pkl')
