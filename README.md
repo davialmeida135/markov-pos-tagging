@@ -74,7 +74,7 @@ Este módulo é responsável pelo pré-processamento dos dados. A classe PennTre
 
 ### secondorder.py
 - Implementa o HMM de Segunda Ordem. A lógica é uma extensão do modelo de primeira ordem.
-- `train(self, tagged_sentences)`: A principal diferença é que o estado anterior agora é um bigrama de tags (tag_anterior_2, tag_anterior_1). Dois símbolos <s> são adicionados ao início para o contexto inicial. As contagens refletem essa mudança, usando tuplas como chaves para as transições.
+- `train(self, tagged_sentences)`: A principal diferença é que o estado anterior agora é um bigrama de tags (tag_anterior_2, tag_anterior_1). Dois símbolos `<s>` são adicionados ao início para o contexto inicial. As contagens refletem essa mudança, usando tuplas como chaves para as transições.
 - `transition_prob`: Calcula a probabilidade P(tag_atual | tag_anterior_2, tag_anterior_1).
 - `viterbi(self, sentence)`: A implementação do Viterbi é mais complexa.
 - `Matrizes V e backpointers`: São tridimensionais (posição, tag_anterior, tag_atual) para acomodar o estado de bigrama.
