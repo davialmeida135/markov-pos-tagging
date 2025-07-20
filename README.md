@@ -66,7 +66,7 @@ Este módulo é responsável pelo pré-processamento dos dados. A classe PennTre
 
 ### `firstorder.py`
 - Implementa o HMM de Primeira Ordem.
-- `train(self, tagged_sentences)`: Itera sobre as sentenças de treino para contar as ocorrências e popular as estruturas de dados transition_counts, emission_counts e tag_unigram_counts. Um símbolo <s> é adicionado no início de cada sentença para marcar a transição inicial.
+- `train(self, tagged_sentences)`: Itera sobre as sentenças de treino para contar as ocorrências e popular as estruturas de dados transition_counts, emission_counts e tag_unigram_counts. Um símbolo s é adicionado no início de cada sentença para marcar a transição inicial.
 - `transition_prob e emission_prob:` calculam as probabilidades P(tag_atual | tag_anterior) e P(palavra | tag), respectivamente. Utilizam uma pequena constante (1e-6) para evitar divisão por zero (suavização de Laplace).
 - `viterbi(self, sentence):` É o núcleo do agente. Implementa o algoritmo de Viterbi para encontrar o caminho mais provável de tags.
 - `Log-Probabilities:` As probabilidades são convertidas para o espaço logarítmico (math.log) para evitar underflow numérico em sentenças longas e transformar multiplicações em somas, o que é computacionalmente mais estável.
