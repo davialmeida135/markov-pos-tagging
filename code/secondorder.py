@@ -236,7 +236,7 @@ if __name__ == "__main__":
     #tagger.save_model('models/hmm_pos_tagger.pkl')
     tagger.load_model('models/hmm_pos_tagger.pkl')
     print(tagger.get_model_stats())
-    tagger.test(processor.dev)
+    #tagger.test(processor.dev)
 
     # Test the tagger on a sample sentence
     #test_sentence = "Brabo ojira ahahaha obs muito bom"
